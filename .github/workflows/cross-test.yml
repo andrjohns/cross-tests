@@ -1,0 +1,62 @@
+name: R-devel Installation
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      MINGW64_PREFIX: "C:/msys64/clang64"
+    steps:
+
+      - name: download R-aarch64
+        run: |
+          curl https://www.r-project.org/nosvn/winutf8/ucrt3/r_binaries_aarch64_86344_6104_6164.tar.zst -o r-aarch64.tar.zst
+          tar -xf r-aarch64.tar.zst
+          curl https://www.r-project.org/nosvn/winutf8/ucrt3/llvm17_ucrt3_base_aarch64_6192.tar.zst -o llvm-aarch64.tar.zst
+          tar -xf llvm-aarch64.tar.zst
+
+      - uses: msys2/setup-msys2@v2
+        if: always()
+        with:
+          location: C:/
+          msystem: CLANG64
+          install:
+            mingw-w64-clang-x86_64-clang
+
+      - name: Copy clang rt libs
+        if: always()
+        run: |
+          cp aarch64-w64-mingw32.static.posix/lib/clang/17/lib/windows/libclang_rt.builtins-aarch64.a ${{env.MINGW64_PREFIX}}/lib/clang/18/lib/windows/
+        shell: bash
+          
+      - name: Update R Makeconf
+        if: always()
+        run: |
+          mv $(R RHOME)/etc/x64/Makeconf $(R RHOME)/etc/x64/Makeconf.bak
+          cp trunk/etc/Makeconf $(R RHOME)/etc/x64/Makeconf
+          sed -i.bak 's|^LIBR =.*|LIBR = -L'$(pwd)/trunk/bin' -lR -lpthread|g' $(R RHOME)/etc/x64/Makeconf
+          echo "CXX= \$(BINPREF)clang++ --target=aarch64-w64-mingw32 --sysroot='$(pwd)/aarch64-w64-mingw32.static.posix'" >> $(R RHOME)/etc/x64/Makeconf
+          echo "CC= \$(BINPREF)clang --target=aarch64-w64-mingw32 --sysroot='$(pwd)/aarch64-w64-mingw32.static.posix'" >> $(R RHOME)/etc/x64/Makeconf
+        shell: bash
+
+      - name: Try cross-compile
+        if: always()
+        env:
+          R_HOME_CROSS: trunk
+          BINPREF: ${{env.MINGW64_PREFIX}}/bin/
+        run: |
+          mkdir lib
+          curl https://cdn.r-universe.dev/3160fcb92458f7864e98404c5e446c22/QuickJSR_1.2.0.9000.tar.gz --output QuickJSR_1.2.0.9000.tar.gz
+          Rcmd INSTALL --build --library=lib QuickJSR_1.2.0.9000.tar.gz --no-docs --no-html --no-test-load --no-staged-install --no-byte-compile
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuickJSR_1.2.0.9000_aarch64
+          path: QuickJSR_1.2.0.9000.zip
+      
